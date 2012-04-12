@@ -29,20 +29,23 @@ LOG.addHandler(NullHandler())
 def load_dll(libname, fallbacks=None):
     lib = find_library(libname)
     if lib is not None:
-        return CDLL(lib)
-    else:
-        if fallbacks is not None:
-            for name in fallbacks:
-                try:
-                    return CDLL(name)
-                except OSError:
-                    # move on to the next fallback
-                    pass
-        # the end
-        raise OSError(
-            "Could not find library %s or load any of its variants %s" % (
-                libname, fallbacks or []))
-       
+        try:
+            return CDLL(lib)
+        except OSError:
+            # library may not be the right arch
+            pass
+    if fallbacks is not None:
+        for name in fallbacks:
+            try:
+                return CDLL(name)
+            except OSError:
+                # move on to the next fallback
+                pass
+    # the end
+    raise OSError(
+        "Could not find library %s or load any of its variants %s" % (
+            libname, fallbacks or []))
+
 if sys.platform.startswith('linux'):
     _lgeos = load_dll('geos_c', fallbacks=['libgeos_c.so.1', 'libgeos_c.so'])
     free = load_dll('c').free
@@ -56,6 +59,10 @@ elif sys.platform == 'darwin':
             # macports
             '/opt/local/lib/libgeos_c.dylib',
     ]
+    # if in a py2app, use internal resource
+    if hasattr(sys,'frozen') and sys.frozen=='macosx_app':
+        alt_paths.append(os.path.join(os.environ['RESOURCEPATH'],
+                                      '..','Frameworks','libgeos_c.dylib'))
     _lgeos = load_dll('geos_c', fallbacks=alt_paths)
     free = load_dll('c').free
     free.argtypes = [c_void_p]
@@ -112,7 +119,7 @@ prototype(_lgeos, geos_c_version)
 if geos_c_version >= (1,5,0):
     end_set = set(_lgeos.__dict__)
     new_func_names = end_set - start_set
-    
+
     for func_name in new_func_names:
         new_func_name = "%s_r" % func_name
         if hasattr(_lgeos, new_func_name):
@@ -127,7 +134,7 @@ if geos_c_version >= (1,5,0):
                 new_func.argtypes = [c_void_p] + old_func.argtypes
             if old_func.errcheck is not None:
                 new_func.errcheck = old_func.errcheck
-    
+
     # Handle special case.
     _lgeos.initGEOS_r.restype = c_void_p
     _lgeos.initGEOS_r.argtypes = [EXCEPTION_HANDLER_FUNCTYPE, EXCEPTION_HANDLER_FUNCTYPE]
@@ -192,9 +199,9 @@ class LGEOSBase(threading.local):
     def __init__(self, dll):
         self._lgeos = dll
         self.geos_handle = None
-        
 
-class LGEOS14(LGEOSBase):    
+
+class LGEOS14(LGEOSBase):
     """Proxy for the GEOS_C DLL/SO API version 1.4
     """
     geos_capi_version = (1, 4, 0)
@@ -258,10 +265,10 @@ class LGEOS14(LGEOSBase):
             self.GEOSTopologyPreserveSimplify
 
 
-class LGEOS15(LGEOSBase):    
+class LGEOS15(LGEOSBase):
     """Proxy for the reentrant GEOS_C DLL/SO API version 1.5
     """
-    geos_capi_version = (1, 5, 0)    
+    geos_capi_version = (1, 5, 0)
     def __init__(self, dll):
         super(LGEOS15, self).__init__(dll)
         self.geos_handle = self._lgeos.initGEOS_r(notice_h, error_h)
@@ -297,7 +304,7 @@ class LGEOS15(LGEOSBase):
             pred.func.errcheck = errcheck_predicate
 
         self.GEOSisValidReason.func.errcheck = errcheck_just_free
-        
+
         self.methods['area'] = self.GEOSArea
         self.methods['boundary'] = self.GEOSBoundary
         self.methods['buffer'] = self.GEOSBuffer
@@ -343,7 +350,7 @@ class LGEOS16(LGEOS15):
         super(LGEOS16, self).__init__(dll)
 
 
-class LGEOS16LR(LGEOS16):    
+class LGEOS16LR(LGEOS16):
     """Proxy for the reentrant GEOS_C DLL/SO API version 1.6 with linear
     referencing
     """
